@@ -1,0 +1,11 @@
+{
+  "name": "player-hls",
+  "version": "1.0.0",
+  "description": "Um player de HLS escrito do zero sobre MediaSource Extensions: playlist, adaptacao de qualidade e buffer. Sem hls.js.",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test testes/*.test.js" },
+  "keywords": ["hls", "m3u8", "mediasource", "video", "streaming"],
+  "license": "MIT"
+}
