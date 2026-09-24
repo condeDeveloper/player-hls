@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>player-hls · demonstração</title>
+<style>
+  :root {
+    --fundo: #161B22;
+    --painel: #1C2129;
+    --vinho: #A52A45;
+    --vinho-escuro: #541525;
+    --texto: #F0F6FC;
+    --apagado: #8B949E;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 24px 16px;
+    background: var(--fundo);
+    color: var(--texto);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  main { max-width: 900px; margin: 0 auto; }
+
+  h1 { font-size: 20px; margin: 0 0 4px; }
+
+  p.sub { color: var(--apagado); margin: 0 0 20px; }
+
+  video { width: 100%; background: #000; border-radius: 8px; display: block; }
+
+  .controles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin: 16px 0;
+  }
+
+  select, button {
+    background: var(--painel);
+    color: var(--texto);
+    border: 1px solid #30363D;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  button:hover, select:hover { border-color: var(--vinho); }
+
+  .medidores {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+    margin-top: 16px;
+  }
+
+  .medidor {
+    background: var(--painel);
+    border-left: 3px solid var(--vinho-escuro);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+
+  .medidor b { display: block; font-size: 19px; font-variant-numeric: tabular-nums; }
+
+  .medidor span { color: var(--apagado); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+
+  #registro {
+    margin-top: 16px;
+    background: var(--painel);
+    border-radius: 6px;
+    padding: 12px;
+    max-height: 200px;
+    overflow: auto;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: 12px;
+    color: var(--apagado);
+  }
+
+  #registro div { padding: 1px 0; }
+
+  footer { margin-top: 24px; color: var(--apagado); font-size: 13px; }
+
+  a { color: var(--vinho); }
+</style>
+</head>
+<body>
+<main>
+  <h1>player-hls</h1>
+  <p class="sub">Um player de HLS escrito do zero, sobre MediaSource Extensions. Sem hls.js.</p>
+
+  <video id="video" controls playsinline></video>
+
+  <div class="controles">
+    <select id="fluxo">
+      <option value="https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8">Fluxo de teste da Mux (5 qualidades)</option>
+      <option value="https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8">Exemplo oficial de HLS da Apple</option>
+      <option value="https://test-streams.mux.dev/pts_shift/master.m3u8">Fluxo com deslocamento de PTS</option>
+    </select>
+    <button id="carregar">Carregar</button>
+    <select id="qualidade"><option value="auto">Qualidade: automática</option></select>
+  </div>
+
+  <div class="medidores">
+    <div class="medidor"><span>Banda estimada</span><b id="banda">—</b></div>
+    <div class="medidor"><span>Buffer à frente</span><b id="buffer">—</b></div>
+    <div class="medidor"><span>Qualidade</span><b id="atual">—</b></div>
+    <div class="medidor"><span>Segmentos</span><b id="segmentos">0</b></div>
+  </div>
+
+  <div id="registro"></div>
+
+  <footer>
+    Os fluxos são públicos, publicados para desenvolvimento de player.
+    <a href="https://github.com/condeDeveloper/player-hls">código no GitHub</a>
+  </footer>
+</main>
+
+<script type="module">
+  import { PlayerHls } from '../src/index.js';
+
+  const video = document.getElementById('video');
+  const registro = document.getElementById('registro');
+  const seletorDeQualidade = document.getElementById('qualidade');
+
+  let player = null;
+
+  const anotar = (texto) => {
+    const linha = document.createElement('div');
+
+    linha.textContent = `${new Date().toLocaleTimeString('pt-BR')}  ${texto}`;
+    registro.prepend(linha);
+
+    while (registro.childElementCount > 80) registro.lastElementChild.remove();
+  };
+
+  const mbps = (bits) => `${(bits / 1_000_000).toFixed(2)} Mbps`;
+
+  async function carregar(url) {
+    player?.parar();
+    registro.textContent = '';
+
+    if (!PlayerHls.suportado()) {
+      anotar('Este navegador não tem MediaSource Extensions.');
+      return;
+    }
+
+    player = new PlayerHls(video, { bufferAlvo: 30 });
+
+    player.addEventListener('qualidades', ({ detail }) => {
+      seletorDeQualidade.innerHTML = '<option value="auto">Qualidade: automática</option>';
+
+      for (const q of detail.qualidades) {
+        const opcao = document.createElement('option');
+
+        opcao.value = String(q.indice);
+        opcao.textContent = `${q.nome} · ${Math.round(q.banda / 1000)} kbps`;
+        seletorDeQualidade.append(opcao);
+      }
+    });
+
+    player.addEventListener('qualidade', ({ detail }) => {
+      const r = detail.variante.resolucao;
+
+      document.getElementById('atual').textContent = detail.variante.nome ?? (r ? `${r.altura}p` : '—');
+      anotar(`trocou para a variante ${detail.indice}`);
+    });
+
+    player.addEventListener('segmento', ({ detail }) => {
+      document.getElementById('banda').textContent = mbps(detail.banda);
+      document.getElementById('segmentos').textContent = player.proximoIndice;
+      anotar(`segmento ${detail.sequencia} · ${(detail.bytes / 1024).toFixed(0)} KB`);
+    });
+
+    player.addEventListener('erro', ({ detail }) => anotar(`erro: ${detail.erro?.message ?? detail.erro}`));
+    player.addEventListener('fim', () => anotar('fim do fluxo'));
+
+    try {
+      await player.carregar(url);
+
+      const tipo = PlayerHls.tipoDe(player.adaptador.variante);
+
+      anotar(`carregado · ${player.midia.segmentos.length} segmentos · ${tipo}`);
+
+      await player.prender(tipo);
+
+      player.iniciar();
+      anotar('tocando');
+    } catch (erro) {
+      anotar(`falhou: ${erro.message}`);
+    }
+  }
+
+  document.getElementById('carregar').addEventListener('click', () => {
+    carregar(document.getElementById('fluxo').value);
+  });
+
+  seletorDeQualidade.addEventListener('change', (evento) => {
+    if (!player?.adaptador) return;
+
+    const valor = evento.target.value;
+
+    player.adaptador.travar(valor === 'auto' ? null : Number(valor));
+    anotar(valor === 'auto' ? 'qualidade automática' : `qualidade travada em ${valor}`);
+  });
+
+  setInterval(() => {
+    if (!player) return;
+
+    const adiante = player.video.buffered.length > 0
+      ? Math.max(0, player.video.buffered.end(player.video.buffered.length - 1) - player.video.currentTime)
+      : 0;
+
+    document.getElementById('buffer').textContent = `${adiante.toFixed(1)} s`;
+  }, 500);
+</script>
+</body>
+</html>
